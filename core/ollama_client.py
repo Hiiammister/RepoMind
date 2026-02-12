@@ -1,5 +1,5 @@
 import requests
-def generate(prompt: str, ollama_url: str = "http://localhost:11434/api/v1/ollama/generate"):
+def generate(prompt: str, ollama_url: str = "http://127.0.0.1:11434/api/generate"):
     payload = {
         "model": "llama2",
         "prompt": prompt,

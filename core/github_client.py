@@ -25,3 +25,28 @@ def getReadme(owner,repo, token=None):
     content=data.get("content","")
     decoded=base64.b64decode(content).decode("utf-8", errors="ignore")
     return decoded
+
+def get_repo_tree(owner, repo, token=None):
+    # get default branch first
+    repo_url = f"https://api.github.com/repos/{owner}/{repo}"
+    headers = {}
+
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    repo_data = requests.get(repo_url, headers=headers).json()
+    branch = repo_data.get("default_branch", "main")
+
+    # fetch tree recursively
+    tree_url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
+    tree_resp = requests.get(tree_url, headers=headers)
+
+    if tree_resp.status_code != 200:
+        return []
+
+    tree_data = tree_resp.json().get("tree", [])
+
+    # keep only files
+    files = [item["path"] for item in tree_data if item["type"] == "blob"]
+
+    return files
