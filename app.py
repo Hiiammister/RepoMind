@@ -24,9 +24,13 @@ if st.button("Analyze"):
     #log_box.text("Parsing URL...") debugging ...
     owner, repo_name=parse_github_url(Repo)
     if owner and repo_name:
-        log_box.text(f"Parsing URL...\nRepo detected:{owner}/{repo_name}")
+        with st.spinner("Loading..."):
+            time.sleep(5)
+            log_box.text(f"Repo detected:{owner}/{repo_name}")
+            st.success("Done!")
     else:
         log_box.text("Invalid GitHub URL")
+        st.error("Repo Not Found")
 
 
     # st.write("You selected:", Depth_Bar) , debugging...
