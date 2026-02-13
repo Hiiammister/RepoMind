@@ -2,6 +2,7 @@ import streamlit as st
 import time
 from core.github_client import parse_github_url, getReadme, get_repo_tree
 from core.ollama_client import generate
+
 st.title("RepoMind")
 st.subheader("A GitHub Repo Explainer")
 Repo=st.text_input("Add the GitHub Repository you want me to explain","")
