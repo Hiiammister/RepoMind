@@ -4,6 +4,9 @@ import time
 from core.github_client import parse_github_url, getReadme, get_repo_tree, get_file_content
 from core.ollama_client import generate
 from core.file_selector import select_files
+from core.synthesizer import synthesize_report
+from core.summarizer import summarize_file
+from core.exporter import report_to_markdown
 
 st.title("RepoMind")
 st.subheader("A GitHub Repo Explainer")
@@ -11,10 +14,7 @@ st.subheader("A GitHub Repo Explainer")
 Repo = st.text_input("Add the GitHub Repository you want me to explain", "")
 
 with st.sidebar:
-    Depth_Bar = st.selectbox(
-        "Depth of Explain:",
-        ("Quick", "Standard", "Deep"),
-    )
+    Depth_Bar = st.selectbox("Depth of Explain:", ("Quick", "Standard", "Deep"))
     include_tests = st.checkbox("Include tests", value=False)
     include_docs = st.checkbox("Include docs", value=False)
     max_files = st.slider("Max files to select", 10, 100, 35)
@@ -35,6 +35,14 @@ if "owner" not in st.session_state:
     st.session_state.owner = None
 if "repo_name" not in st.session_state:
     st.session_state.repo_name = None
+if "final_report" not in st.session_state:
+    st.session_state.final_report = None
+
+# ✅ download state for README summary (always visible after parse)
+if "summary_text" not in st.session_state:
+    st.session_state.summary_text = None
+if "summary_md" not in st.session_state:
+    st.session_state.summary_md = None
 
 # -----------------------
 # Analyze Button
@@ -46,12 +54,15 @@ if st.button("Analyze"):
         st.session_state.repo_name = repo_name
         st.session_state.analyzed = True
 
-        # Clear prior run caches so a new repo doesn't reuse old state
+        # Clear prior run caches
         st.session_state.pop("files", None)
         st.session_state.pop("auto_selected", None)
         st.session_state.pop("checked", None)
         st.session_state.pop("loaded_files", None)
         st.session_state.pop("fetch_stats", None)
+        st.session_state.pop("final_report", None)
+        st.session_state.pop("summary_text", None)
+        st.session_state.pop("summary_md", None)
 
         log_box.text(f"Repo: {owner}/{repo_name}\nParsing URL...")
     else:
@@ -59,7 +70,7 @@ if st.button("Analyze"):
         log_box.text("Invalid GitHub URL")
 
 # -----------------------
-# Main App (persists across reruns)
+# Main App
 # -----------------------
 if st.session_state.analyzed:
     owner = st.session_state.owner
@@ -68,12 +79,24 @@ if st.session_state.analyzed:
     with results_container:
         st.success("URL Parsed Successfully!")
 
+        # ✅ ALWAYS SHOW DOWNLOAD (disabled until summary generated)
+        st.subheader("Download")
+        download_slot= st.empty()
+        download_slot.download_button(
+            "Download README Summary",
+            data=(st.session_state.get("summary_text") or ""),
+            file_name="repo_summary.txt",
+            mime="text/plain",
+            disabled=(st.session_state.get("summary_text") is None),
+            key="download_summary_btn"
+
+        )
+        
+
     with st.spinner("Loading..."):
         time.sleep(1)
 
-    # -----------------------
-    # Fetch repo tree ONCE
-    # -----------------------
+    # Fetch repo tree once
     if "files" not in st.session_state:
         st.session_state.files = get_repo_tree(owner, repo_name)
 
@@ -85,9 +108,7 @@ if st.session_state.analyzed:
         st.write("First 100 files:")
         st.code("\n".join(files[:100]))
 
-    # -----------------------
-    # Smart file selection ONCE (unless you want to recompute)
-    # -----------------------
+    # Smart selection
     if "auto_selected" not in st.session_state:
         st.session_state.auto_selected = select_files(
             files,
@@ -98,9 +119,7 @@ if st.session_state.analyzed:
 
     auto_selected = st.session_state.auto_selected
 
-    # -----------------------
-    # Checkbox selection via FORM
-    # -----------------------
+    # Selection form
     with results_container:
         st.subheader(f"Selected: {len(auto_selected)} files")
 
@@ -114,21 +133,19 @@ if st.session_state.analyzed:
 
     if submitted:
         st.session_state.checked = temp_checked
-        # Clear previous loaded cache when selection changes
         st.session_state.pop("loaded_files", None)
         st.session_state.pop("fetch_stats", None)
+        st.session_state.pop("final_report", None)
 
     checked = st.session_state.get("checked", auto_selected)
 
     with results_container:
         st.write(f"Selected (after unchecking): {len(checked)}")
 
-    # -----------------------
-    # Fetch file contents ONLY after user loads selection
-    # -----------------------
+    # Fetch file contents
+    loaded = {}
     if "checked" in st.session_state:
         if "loaded_files" not in st.session_state:
-            loaded = {}
             skipped_large = 0
             skipped_binary = 0
             errors = 0
@@ -147,8 +164,9 @@ if st.session_state.analyzed:
 
             st.session_state.loaded_files = loaded
             st.session_state.fetch_stats = (skipped_large, skipped_binary, errors)
+        else:
+            loaded = st.session_state.loaded_files
 
-        loaded = st.session_state.loaded_files
         skipped_large, skipped_binary, errors = st.session_state.fetch_stats
 
         with results_container:
@@ -165,7 +183,37 @@ if st.session_state.analyzed:
                 st.code(loaded[chosen_file][:4000])
 
     # -----------------------
-    # README + Llama 2 Summary
+    # Milestone C — Map → Reduce (optional)
+    # -----------------------
+    if "loaded_files" in st.session_state and st.session_state.loaded_files:
+        with results_container:
+            st.subheader("Milestone C — Full Repository Explanation")
+
+            if st.button("Generate Full Explanation", key="gen_full_expl"):
+                file_summaries = []
+                items = list(st.session_state.loaded_files.items())
+                total = len(items)
+
+                progress = st.progress(0.0)
+
+                for i, (path, content) in enumerate(items):
+                    file_summaries.append(summarize_file(path, content))
+                    progress.progress((i + 1) / total)
+
+                repo_meta = {
+                    "repo": f"{owner}/{repo_name}",
+                    "total_files_in_repo": len(files),
+                    "selected_files_count": len(st.session_state.loaded_files),
+                }
+
+                final_report = synthesize_report(repo_meta, file_summaries, depth=Depth_Bar)
+                st.session_state.final_report = final_report
+
+                st.success("Full explanation generated!")
+                st.text(final_report)
+
+    # -----------------------
+    # README + Llama summary (this enables download button)
     # -----------------------
     readme_content = getReadme(owner, repo_name)
 
@@ -193,10 +241,25 @@ if st.session_state.analyzed:
                 st.text(llm_summary)
                 st.subheader("Tech Stack:")
                 st.text(llm_tech_stack or "Could not extract tech stack.")
-            else:
-                st.error("Failed to generate summary from LLM. Is Ollama reachable?")
 
+                # ✅ SAVE so download button becomes enabled
+                combined_report = (
+                    f"Repo: {owner}/{repo_name}\n\n"
+                    f"SUMMARY:\n{llm_summary}\n\n"
+                    f"TECH STACK:\n{llm_tech_stack or ''}\n"
+                )
+                st.session_state.summary_text = combined_report
+                
+                download_slot.download_button(
+                    "Download README Summary",
+                    data=(st.session_state.get("summary_text") or ""),
+                    file_name="repo_summary.txt",
+                    disabled=(st.session_state.get("summary_text") is None),
+                    key="download_summary_btn_enabled"
+                )
+
+            else:
+                st.error("Failed to generate summary from LLM.")
     else:
         with results_container:
             st.warning("No README found or failed to fetch README.")
-
