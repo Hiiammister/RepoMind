@@ -10,7 +10,9 @@ python --version
 git --version
 ```
 ## 3. Install Ollama + Llama 2
-### Install Ollama from official site
+### Install Ollama from official site: https://ollama.com/download
+
+## 4. Pull LLama2 model
 ```bash
 ollama pull llama2
 ```
@@ -23,20 +25,21 @@ ollama run llama2
 /bye
 ```
 # Project Setup
-## 1. Create Project Folder
-```bash
-cd RepoMind
-```
+## 1. Open Terminal/ Powershell
 ## 2. Install Dependencies
 ```bash
 pip install streamlit
-pip install streamlit requests python-dotenv
+```
+## 2. Change to project folder
+```bash
+cd RepoMind
 ```
 # Run the Project by:
 ```bash
 streamlit run [file_name.py]
 #in this case, streamlit run app.py
 ```
+
 
 
 
